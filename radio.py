@@ -1,7 +1,6 @@
 import asyncio
 import edge_tts
 import operator
-import pygame
 import random
 import os
 from dotenv import load_dotenv
@@ -15,6 +14,7 @@ from langgraph.prebuilt import tools_condition, ToolNode
 from langchain_core.tools import tool
 from langchain_core.messages import SystemMessage, HumanMessage, RemoveMessage
 from langchain_anthropic import ChatAnthropic
+from broadcast import start_broadcast
 
 
 BASE = Path(__file__).parent
@@ -32,7 +32,9 @@ PERSONA = (
     "Produza APENAS a fala a ser lida em voz alta — sem aspas, sem marcações de "
     "cena, sem emojis, sem listar opções. Seja conciso (1 a 2 frases)."
 )
-pygame.mixer.init()
+
+# Hub de transmissão (pump + encoder + servidor HTTP). Inicializado em main().
+HUB = None
 
 class RadioState(TypedDict):
     messages: Annotated[list, add_messages] # Inherited in MessagesState
@@ -98,7 +100,7 @@ def ingest(state: RadioState) -> dict:
 def router1(state: RadioState) -> Literal['speak', 'brain', 'locutor']:
     if state[CH4]:
         return 'speak'
-    return 'brain' if random.random() < 0.5 else 'locutor'
+    return 'brain' if random.random() < 0.4 else 'locutor'
 
 
 
@@ -107,8 +109,8 @@ llm = ChatAnthropic(model=LLM_MODEL, temperature=0.9)
 @tool
 def hora_atual() -> str:
     """Retorna a hora atual no formato HH:MM, para o locutor situar o ouvinte."""
-    from datetime import datetime
-    return datetime.now().strftime("%H:%M")
+    from datetime import datetime, timedelta
+    return (datetime.now() + timedelta(minutes=3)).strftime("%H:%M")
 
 
 TOOLS = [hora_atual]
@@ -136,15 +138,6 @@ def locutor(state: RadioState) -> dict:
     return {CH4: text}
 
 
-def _play_blocking(path: str) -> None:
-    """Toca um arquivo de áudio e bloqueia até terminar."""
-    pygame.mixer.music.load(path)
-    pygame.mixer.music.play()
-    while pygame.mixer.music.get_busy():
-        pygame.time.Clock().tick(10)
-    pygame.mixer.music.unload()
-
-
 def _say(text):
     out = AUDIO_DIR / "speech.mp3"
     try:
@@ -152,7 +145,7 @@ def _say(text):
     except Exception as e:  # noqa: BLE001 - rádio não pode cair por falha de TTS
         print(f"[speak] falha no TTS, pulando fala: {e}")
         return
-    _play_blocking(str(out))
+    HUB.enqueue(str(out), title="🎙️ locutor")
 
 
 def speak(state: RadioState) -> dict:
@@ -172,7 +165,7 @@ def play_song(state: RadioState) -> dict:
         return {}
     print(f"[play] tocando: {state.get(CH5)}")
     try:
-        _play_blocking(path)
+        HUB.enqueue(path, title=Path(path).stem)
     except Exception as e:  # noqa: BLE001
         print(f"[play] erro ao tocar {path}, pulando: {e}")
     return {}
@@ -209,6 +202,12 @@ def build_app(checkpointer):
 def main():
     if not os.getenv("ANTHROPIC_API_KEY"):
         raise SystemExit("Defina ANTHROPIC_API_KEY no arquivo .env")
+
+    global HUB
+    HUB = start_broadcast(
+        port=int(os.getenv("RADIO_PORT", "8383")),
+        prefetch=int(os.getenv("RADIO_PREFETCH", "1")),
+    )
 
     config = {"configurable": {"thread_id": "radio-2"}}
     with SqliteSaver.from_conn_string(str(DB_PATH)) as checkpointer:

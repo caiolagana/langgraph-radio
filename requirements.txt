@@ -1,5 +1,9 @@
 edge-tts==7.2.8
-pygame==2.6.1
+miniaudio==1.71
+lameenc==1.8.4
+sounddevice==0.5.5
+fastapi==0.138.2
+uvicorn[standard]==0.49.0
 langgraph==1.2.6
 langchain-anthropic==1.4.8
 langchain-core==1.4.8
