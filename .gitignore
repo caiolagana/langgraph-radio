@@ -16,3 +16,5 @@ venv/
 # Conteúdo local (músicas e notícias)
 mp3/
 news/
+radio2.sqlite-shm
+radio2.sqlite-wal
