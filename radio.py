@@ -5,6 +5,7 @@ import random
 import os
 from dotenv import load_dotenv
 from pathlib import Path
+from datetime import datetime
 from typing import Annotated, TypedDict, Optional, Literal
 from langgraph.graph import END, START, StateGraph, MessagesState
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
@@ -67,14 +68,18 @@ def ingest(state: RadioState) -> dict:
     print(f"[ingest] A próxima música será {now_playing}")
     update[CH2] = playlist
 
-    # Consome arquivos .txt de news/ (cada arquivo = uma intervenção) e os remove.
+    # Consome arquivos .txt de news/ (cada arquivo = uma intervenção) e os
+    # move para news/lidas.
     novas_intervencoes: list[str] = []
+    lidas_dir = NEWS_DIR / "lidas"
+    lidas_dir.mkdir(parents=True, exist_ok=True)
     for f in sorted(NEWS_DIR.glob("*.txt")):
         try:
             text = f.read_text(encoding="utf-8").strip()
             if text:
                 novas_intervencoes.append(text)
-            f.unlink()
+            ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+            f.rename(lidas_dir / f"{ts}_{f.name}")
         except Exception as e:  # noqa: BLE001
             print(f"[ingest] erro lendo {f.name}: {e}")
     fila_intervencoes = list(state.get(CH3) or []) + novas_intervencoes
@@ -100,7 +105,7 @@ def ingest(state: RadioState) -> dict:
 def router1(state: RadioState) -> Literal['speak', 'brain', 'locutor']:
     if state[CH4]:
         return 'speak'
-    return 'brain' if random.random() < 0.4 else 'locutor'
+    return 'brain' if random.random() < 0.35 else 'locutor'
 
 
 
@@ -134,8 +139,13 @@ def finalize_speech(state: RadioState) -> dict:
 
 
 def locutor(state: RadioState) -> dict:
-    text = f"Fique com a próxima música"
-    return {CH4: text}
+    texts = [
+        "Fique com a próxima música",
+        "Cuide sempre da natureza e ouça a próxima música",
+        "Recicle sempre seu lixo e vamos para a próxima música",
+        "Plante uma árvore e ouça a próxima música"
+        ]
+    return {CH4: random.choice(texts)}
 
 
 def _say(text):
